@@ -5,7 +5,7 @@ import json
 from llm_model_class import LLM_Models
 
 
-class Expert:
+class AIdoctor:
     def __init__(self, args, inquiry=None, answers_list=None):
         self.args = args
         self.llm_models = LLM_Models()

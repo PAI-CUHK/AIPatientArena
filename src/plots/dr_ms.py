@@ -5,8 +5,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # 8 个模型文件路径
-MODEL_NAMES = ["gpt5", "gpt4o", "claude4", "medgemma", "qwen3", "baichuan", "huatuo", "deepseek"]
-MODEL_LABELS = ["GPT-5", "GPT-4o", "Claude 4", "MedGemma", "Qwen3", "Baichuan", "HuatuoGPT", "DeepSeek"]
+MODEL_NAMES = ["gpt55", "gpt5", "gpt4o", "claude46", "claude4", "medgemma", "qwen35", "qwen3", "baichuan", "huatuo", "deepseekv4", "deepseek"]
+MODEL_LABELS = ["GPT-5.5", "GPT-5", "GPT-4o", "Claude 4.6 Sonnet", "Claude 4.0 Sonnet", "MedGemma", "Qwen3.5", "Qwen3", "Baichuan-M2", "HuatuoGPT-o1", "DeepSeek-V4-Pro", "DeepSeek-V3"]
 EVAL_DIR = Path("../../data/eval")
 
 OUTPUT_DIR = Path("./outputs/diagnosis_accuracy")
@@ -43,6 +43,7 @@ def read_and_filter_cases(model):
                 continue
             
             determinable = diagnostic_reasoning.get("determinable", False)
+            # determinable = True
             
             if determinable is True:
                 determinable_true_count += 1
@@ -152,14 +153,17 @@ print(df_all)
 
 # 绘制雷达图
 def plot_radar_chart():
+    from matplotlib.lines import Line2D
+    
     # 准备数据
     models = MODEL_LABELS
     num_vars = len(models)
     
-    # 获取数据
+    # 获取数据 - 交集病例（Dialogue-Sufficient）和所有病例
     intersection_dr = [r["diagnostic_reasoning_avg"] for r in results]
-    intersection_ms = [r["medication_safety_avg"] for r in results]
     all_dr = [r["diagnostic_reasoning_avg"] for r in all_case_results]
+    
+    intersection_ms = [r["medication_safety_avg"] for r in results]
     all_ms = [r["medication_safety_avg"] for r in all_case_results]
     
     # 雷达图范围
@@ -168,124 +172,126 @@ def plot_radar_chart():
     r_step = 0.5
     r_range = r_max - r_min
     
-    # 不排序，使用原始模型顺序
-    sorted_models_dr = models
-    sorted_all_dr = all_dr
-    sorted_intersection_dr = intersection_dr
-    
-    sorted_models_ms = models
-    sorted_all_ms = all_ms
-    sorted_intersection_ms = intersection_ms
-    
     # 数据偏移，使中心对应最小值
     all_dr_offset = np.array(all_dr) - r_min
     intersection_dr_offset = np.array(intersection_dr) - r_min
     all_ms_offset = np.array(all_ms) - r_min
     intersection_ms_offset = np.array(intersection_ms) - r_min
     
-    # 八边形角度 - 从顶部开始逆时针排列
-    angles = np.linspace(np.pi/2, np.pi/2 + 2*np.pi, num_vars, endpoint=False)
+    # 八边形角度 - 从顶部开始顺时针排列
+    angles = np.linspace(np.pi/2, np.pi/2 - 2*np.pi, num_vars, endpoint=False)
     angles = np.append(angles, angles[0])  # 闭合
     all_dr_offset = np.append(all_dr_offset, all_dr_offset[0])
     intersection_dr_offset = np.append(intersection_dr_offset, intersection_dr_offset[0])
     all_ms_offset = np.append(all_ms_offset, all_ms_offset[0])
     intersection_ms_offset = np.append(intersection_ms_offset, intersection_ms_offset[0])
     
-    # 创建画布 - 诊断推理雷达图
-    fig1, ax1 = plt.subplots(figsize=(7,7))
+    # 创建画布 - 两个子图左右排列
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 9))
     
+    # ===== 绘制诊断推理雷达图 (左) =====
     # 绘制八边形网格
     for r in np.arange(0, r_range + 0.01, r_step):
         x = (r / r_range) * np.cos(angles)
         y = (r / r_range) * np.sin(angles)
         ax1.plot(x, y, color='gray', linestyle='--', linewidth=0.5)
         
-        # 刻度值显示在每条边中点，避开轴线
+        # 刻度值显示
         for i in range(num_vars):
-            # 中点角度
             mid_angle = (angles[i] + angles[i+1])/2
             x_text = (r / r_range) * np.cos(mid_angle) * 1.05
             y_text = (r / r_range) * np.sin(mid_angle) * 1.05
-            if i == 0:  # 只标一次，避免重复
-                ax1.text(x_text, y_text, f"{r + r_min:.1f}", fontsize=9, ha='center', va='center')
-    
+            if i == 0:
+                ax1.text(x_text, y_text, f"{r + r_min:.1f}", fontsize=11, ha='center', va='center')
+
     # 绘制径向线
     for a in angles[:-1]:
         ax1.plot([0, np.cos(a)], [0, np.sin(a)], color='gray', linestyle='--', linewidth=0.5)
-    
-    # 绘制数据
+
+    # 绘制数据 - All cases (蓝色)
     x_all_dr = (all_dr_offset / r_range) * np.cos(angles)
     y_all_dr = (all_dr_offset / r_range) * np.sin(angles)
-    ax1.plot(x_all_dr, y_all_dr, 'o-', color="#91A8D5", linewidth=2)
+    ax1.plot(x_all_dr, y_all_dr, 'o-', color="#91A8D5", linewidth=2, label="All cases")
     ax1.fill(x_all_dr, y_all_dr, color="#91A8D5", alpha=0.25)
     
+    # 绘制数据 - Dialogue-Sufficient (粉色)
     x_intersection_dr = (intersection_dr_offset / r_range) * np.cos(angles)
     y_intersection_dr = (intersection_dr_offset / r_range) * np.sin(angles)
-    ax1.plot(x_intersection_dr, y_intersection_dr, 's-', color="#DA99AB", linewidth=2)
+    ax1.plot(x_intersection_dr, y_intersection_dr, 's-', color="#DA99AB", linewidth=2, label="Dialogue-Sufficient")
     ax1.fill(x_intersection_dr, y_intersection_dr, color="#DA99AB", alpha=0.25)
     
     # 模型标签
-    for i, label in enumerate(sorted_models_dr):
-        x_text = 1.1 * np.cos(angles[i])
-        y_text = 1.1 * np.sin(angles[i])
-        ax1.text(x_text, y_text, label, ha='center', va='center', fontsize=10)
+    for i, label in enumerate(models):
+        x_text = 1.15 * np.cos(angles[i])
+        y_text = 1.15 * np.sin(angles[i])
+        ax1.text(x_text, y_text, label, ha='center', va='center', fontsize=12)
     
-    # 去掉坐标轴
     ax1.axis('off')
     ax1.set_aspect('equal')
+
     
-    # 保存诊断推理雷达图
-    output_file1 = OUTPUT_DIR / "diagnostic_reasoning_radar.svg"
-    plt.savefig(output_file1, format="svg", bbox_inches='tight')
-    print(f"\n✅ 保存诊断推理雷达图 -> {output_file1}")
-    
-    # 创建画布 - 药物安全性雷达图
-    fig2, ax2 = plt.subplots(figsize=(7,7))
-    
+    # ===== 绘制药物安全性雷达图 (右) =====
     # 绘制八边形网格
     for r in np.arange(0, r_range + 0.01, r_step):
         x = (r / r_range) * np.cos(angles)
         y = (r / r_range) * np.sin(angles)
         ax2.plot(x, y, color='gray', linestyle='--', linewidth=0.5)
         
-        # 刻度值显示在每条边中点，避开轴线
+        # 刻度值显示
         for i in range(num_vars):
-            # 中点角度
             mid_angle = (angles[i] + angles[i+1])/2
             x_text = (r / r_range) * np.cos(mid_angle) * 1.05
             y_text = (r / r_range) * np.sin(mid_angle) * 1.05
-            if i == 0:  # 只标一次，避免重复
-                ax2.text(x_text, y_text, f"{r + r_min:.1f}", fontsize=9, ha='center', va='center')
-    
+            if i == 0:
+                ax2.text(x_text, y_text, f"{r + r_min:.1f}", fontsize=11, ha='center', va='center')
+
     # 绘制径向线
     for a in angles[:-1]:
         ax2.plot([0, np.cos(a)], [0, np.sin(a)], color='gray', linestyle='--', linewidth=0.5)
-    
-    # 绘制数据
+
+    # 绘制数据 - All cases (蓝色)
     x_all_ms = (all_ms_offset / r_range) * np.cos(angles)
     y_all_ms = (all_ms_offset / r_range) * np.sin(angles)
-    ax2.plot(x_all_ms, y_all_ms, 'o-', color="#91A8D5", linewidth=2)
+    ax2.plot(x_all_ms, y_all_ms, 'o-', color="#91A8D5", linewidth=2, label="All cases")
     ax2.fill(x_all_ms, y_all_ms, color="#91A8D5", alpha=0.25)
     
+    # 绘制数据 - Dialogue-Sufficient (粉色)
     x_intersection_ms = (intersection_ms_offset / r_range) * np.cos(angles)
     y_intersection_ms = (intersection_ms_offset / r_range) * np.sin(angles)
-    ax2.plot(x_intersection_ms, y_intersection_ms, 's-', color="#DA99AB", linewidth=2)
+    ax2.plot(x_intersection_ms, y_intersection_ms, 's-', color="#DA99AB", linewidth=2, label="Dialogue-Sufficient")
     ax2.fill(x_intersection_ms, y_intersection_ms, color="#DA99AB", alpha=0.25)
     
     # 模型标签
-    for i, label in enumerate(sorted_models_ms):
-        x_text = 1.1 * np.cos(angles[i])
-        y_text = 1.1 * np.sin(angles[i])
-        ax2.text(x_text, y_text, label, ha='center', va='center', fontsize=10)
+    for i, label in enumerate(models):
+        x_text = 1.15 * np.cos(angles[i])
+        y_text = 1.15 * np.sin(angles[i])
+        ax2.text(x_text, y_text, label, ha='center', va='center', fontsize=12)
     
-    # 去掉坐标轴
     ax2.axis('off')
     ax2.set_aspect('equal')
+
     
-    # 保存药物安全性雷达图
-    output_file2 = OUTPUT_DIR / "medication_safety_radar.svg"
-    plt.savefig(output_file2, format="svg", bbox_inches='tight')
-    print(f"✅ 保存药物安全性雷达图 -> {output_file2}")
+    # ===== 添加统一图例 =====
+    legend_elements = [
+        Line2D([0], [0], marker='o', linestyle='-', color='#91A8D5', linewidth=2, label='All cases'),
+        Line2D([0], [0], marker='s', linestyle='-', color='#DA99AB', linewidth=2, label='Dialogue-Sufficient')
+    ]
+    fig.legend(handles=legend_elements, loc='lower center', bbox_to_anchor=(0.5, 0.0), ncol=2, frameon=False, fontsize=13)
+    
+    # ===== 调整布局 =====
+    plt.subplots_adjust(bottom=0.12, top=0.95, left=0.05, right=0.95, wspace=0.3)
+    
+    # ===== 保存合并后的雷达图 =====
+    output_file = OUTPUT_DIR / "diagnosis_radar_combined.svg"
+    plt.savefig(output_file, format="svg", bbox_inches='tight')
+    print(f"\n✅ 保存合并雷达图 -> {output_file}")
+    
+    # 也保存为 PNG
+    output_file_png = OUTPUT_DIR / "diagnosis_radar_combined.png"
+    plt.savefig(output_file_png, format="png", bbox_inches='tight', dpi=300)
+    print(f"✅ 保存合并雷达图 -> {output_file_png}")
+    
+    plt.close()
 
 # 绘制诊断正确率柱状图
 def plot_diagnostic_accuracy():
@@ -295,13 +301,17 @@ def plot_diagnostic_accuracy():
     
     # 模型名称映射
     model_name_map = {
+        'gpt55': "GPT-5.5",
         "gpt5": "GPT-5",
         "gpt4o": "GPT-4o",
+        "claude46": "Claude 4.6 Sonnet",
         "claude4": "Claude 4.0 Sonnet",
         "medgemma": "MedGemma",
+        "qwen35": "Qwen3.5",
         "qwen3": "Qwen3",
         "baichuan": "Baichuan-M2",
         "huatuo": "HuatuoGPT-o1",
+        "deepseekv4": "DeepSeek-V4-Pro",
         "deepseek": "DeepSeek-V3"
     }
     
@@ -343,6 +353,11 @@ def plot_diagnostic_accuracy():
     output_file = OUTPUT_DIR / "diagnostic_accuracy.svg"
     plt.savefig(output_file, format="svg", bbox_inches='tight')
     print(f"✅ 保存诊断正确率柱状图 -> {output_file}")
+    
+    # 保存为 PNG
+    output_file_png = OUTPUT_DIR / "diagnostic_accuracy.png"
+    plt.savefig(output_file_png, format="png", bbox_inches='tight', dpi=300)
+    print(f"✅ 保存诊断正确率柱状图 -> {output_file_png}")
 
 # 调用绘图函数
 plot_radar_chart()

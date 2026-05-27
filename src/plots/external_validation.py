@@ -5,7 +5,14 @@ import json
 from pathlib import Path
 
 # ===== 配置 =====
-EVAL_DIR = Path("/media/disk1/njh/aipatient_eval/aipatient_eval_5880/data/eval")
+BASE_DIR = Path(__file__).parent.parent.parent / "data"
+
+DATASET_CONFIGS = [
+    {"name": "eval", "dir": "eval", "filename_pattern": "{model}_all_0117.jsonl", "title": "(a) CCQA dataset"},
+    {"name": "pmc_eval", "dir": "pmc_eval", "filename_pattern": "{model}.jsonl", "title": "(b) PMC dataset"},
+    {"name": "shengli_eval", "dir": "shengli_eval", "filename_pattern": "{model}.jsonl", "title": "(c) PCI dataset"},
+]
+
 MODEL_NAMES = ["gpt55", "gpt5", "gpt4o", "claude46", "claude4", "medgemma", "qwen35", "qwen3", "baichuan", "huatuo", "deepseekv4", "deepseek"]
 MODEL_LABELS = ["GPT-5.5", "GPT-5", "GPT-4o", "Claude 4.6 Sonnet", "Claude 4.0 Sonnet", "Medgemma", "Qwen3.5", "Qwen3", "Baichuan-M2", "HuatuoGPT-o1", "Deepseek-V4-Pro", "Deepseek-V3"]
 
@@ -24,20 +31,12 @@ dimension_map = {
 labels = ["QS","IC","HR","ET","EX","II","DR","MS"]
 num_vars = len(labels)
 
-# ===== 按模型类型分组 =====
-GROUP1_LABELS = ["GPT-5.5", "GPT-5", "GPT-4o", "Claude 4.6 Sonnet", "Claude 4.0 Sonnet"]  # 闭源大模型
-GROUP2_LABELS = ["Qwen3.5", "Qwen3", "Deepseek-V4-Pro", "Deepseek-V3"]  # 开源通用模型
-GROUP3_LABELS = ["Medgemma", "Baichuan-M2", "HuatuoGPT-o1"]  # 医疗/开源医疗模型
-
-GROUP_CONFIGS = [
-    {"name": "closed_source", "title": "(a) Closed-source", "models": GROUP1_LABELS},
-    {"name": "open_source", "title": "(b) Open-source", "models": GROUP2_LABELS},
-    {"name": "medical", "title": "(c) Medical-specialized", "models": GROUP3_LABELS},
-]
-
-# ===== 从eval文件读取并计算得分 =====
-def read_and_compute_scores(model):
-    input_path = EVAL_DIR / f"{model}_all_0117.jsonl"
+# ===== 从不同数据源读取并计算得分 =====
+def read_and_compute_scores(model, dataset_config):
+    eval_dir = BASE_DIR / dataset_config["dir"]
+    filename = dataset_config["filename_pattern"].format(model=model)
+    input_path = eval_dir / filename
+    
     scores = {dim: [] for dim in dimension_map.values()}
     
     if not input_path.exists():
@@ -64,6 +63,20 @@ def read_and_compute_scores(model):
     
     return avg_scores
 
+# ===== 读取所有数据集 =====
+all_data = {}
+for dataset in DATASET_CONFIGS:
+    dataset_name = dataset["name"]
+    print(f"\n📂 读取 {dataset_name} 数据集...")
+    all_data[dataset_name] = {}
+    
+    for model, label in zip(MODEL_NAMES, MODEL_LABELS):
+        scores = read_and_compute_scores(model, dataset)
+        if scores is None:
+            continue
+        all_data[dataset_name][label] = scores
+        print(f"  {label} scores: {[round(s, 2) for s in scores]}")
+
 # ===== 固定配色 =====
 base_cmap = plt.get_cmap("tab10")
 colors = base_cmap.colors
@@ -79,15 +92,6 @@ line_colors = {}
 for model_name in MODEL_NAMES:
     line_colors[model_name_to_label[model_name]] = fixed_colors[model_name]
 
-# ===== 构建数据字典 =====
-data = {}
-for model, label in zip(MODEL_NAMES, MODEL_LABELS):
-    scores = read_and_compute_scores(model)
-    if scores is None:
-        continue
-    data[label] = scores
-    print(f"{label} scores: {data[label]}")
-
 # ===== 角度 =====
 angles = np.linspace(0, 2*np.pi, num_vars, endpoint=False).tolist()
 angles += angles[:1]
@@ -100,22 +104,22 @@ plt.rcParams['svg.fonttype'] = 'none'
 fig, axes = plt.subplots(1, 3, figsize=(20, 8), subplot_kw=dict(polar=True),
                         gridspec_kw={'wspace': 0.15})
 
-# ===== 按子图顺序收集所有模型的图例元素 =====
+# ===== 收集所有模型的图例元素 =====
 legend_elements = []
-for group in GROUP_CONFIGS:
-    for model in group["models"]:
-        if model in data:
-            legend_elements.append(Line2D([0], [0], linewidth=2, color=line_colors[model], label=model))
+for model in MODEL_LABELS:
+    legend_elements.append(Line2D([0], [0], linewidth=2, color=line_colors[model], label=model))
 
 # ===== 绘制雷达图 =====
-for idx, (ax, group) in enumerate(zip(axes, GROUP_CONFIGS)):
+for idx, (ax, dataset) in enumerate(zip(axes, DATASET_CONFIGS)):
     ax.set_theta_offset(np.pi / 2)
     ax.set_theta_direction(-1)
     
-    for model in group["models"]:
-        if model not in data:
+    dataset_data = all_data[dataset["name"]]
+    
+    for model in MODEL_LABELS:
+        if model not in dataset_data:
             continue
-        values = data[model]
+        values = dataset_data[model]
         values = values + values[:1]
         
         ax.plot(
@@ -149,7 +153,7 @@ for idx, (ax, group) in enumerate(zip(axes, GROUP_CONFIGS)):
     ax.xaxis.grid(True, linewidth=0.5, alpha=0.2)
     ax.spines['polar'].set_visible(False)
     
-    # ax.set_title(group["title"], fontsize=12, pad=20)
+    # ax.set_title(dataset["title"], fontsize=12, pad=20)
 
 # ===== 底部统一图例 =====
 fig.legend(handles=legend_elements, 
@@ -166,8 +170,8 @@ plt.subplots_adjust(bottom=0.18)
 import os
 os.makedirs("./outputs", exist_ok=True)
 
-plt.savefig("./outputs/radar_three_groups_combined.png", dpi=300, bbox_inches="tight")
-print("✅ 已保存: ./outputs/radar_three_groups_combined.png")
+plt.savefig("./outputs/radar_3datasets_combined.png", dpi=300, bbox_inches="tight")
+print("\n✅ 已保存: ./outputs/radar_3datasets_combined.png")
 
 plt.close()
 

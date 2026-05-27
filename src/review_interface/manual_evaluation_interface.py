@@ -12,12 +12,12 @@ AI_REVIEW_BASE_DIR = "../data/ai_review"
 
 ai_evaluation_dimensions = [
     ("Medical interview questioning skills", "dynamic_steps"),
-    ("Clinical Information Coverage", "dynamic_items"),
+    ("Information Coverage", "dynamic_items"),
     ("Handling of ambiguous patient responses", "dynamic_steps"),
     ("Ethical and professional conduct", "dynamic_steps"),
     ("Clarity and transparency of clinical explanations", "dynamic_steps"),
-    ("Clinical information integration", "dynamic_categories"),
-    ("Clinical diagnostic reasoning", "complex_structure"),
+    ("information integration", "dynamic_categories"),
+    ("Diagnostic reasoning", "complex_structure"),
     ("Medication safety and justification", "text_explanation")
 ]
 

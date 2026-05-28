@@ -26,7 +26,7 @@ DIM_ABBR = {
     "ethics_score": "ET",  
     "explainability_score": "EX",
     "information_summary_score": "II",
-    "diagnostic_reasoning_score": "DR",
+    "diagnostic_reasoning_score": "Dx",
     "medication_safety_score": "MS",
 }
 

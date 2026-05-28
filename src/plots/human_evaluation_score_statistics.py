@@ -302,7 +302,7 @@ def generate_boxplot(base_path, output_dir):
     ]
 
     dimension_labels = [
-        "QS", "IC", "HR", "EX", "ET", "II", "DR", "MS"
+        "QS", "IC", "HR", "EX", "ET", "II", "Dx", "MS"
     ]
 
     # 收集所有模型的数据

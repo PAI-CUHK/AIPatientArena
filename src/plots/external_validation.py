@@ -24,11 +24,11 @@ dimension_map = {
     "ET": "ethics_score",
     "EX": "explainability_score",
     "II": "information_summary_score",
-    "DR": "diagnostic_reasoning_score",
+    "Dx": "diagnostic_reasoning_score",
     "MS": "medication_safety_score"
 }
 
-labels = ["QS","IC","HR","ET","EX","II","DR","MS"]
+labels = ["QS","IC","HR","ET","EX","II","Dx","MS"]
 num_vars = len(labels)
 
 # ===== 从不同数据源读取并计算得分 =====

@@ -1,6 +1,7 @@
 # AIPatient Arena
 
-## A Doctor-Patient Interactive Framework for Evaluating LLM-based Doctor Performance in Clinical Consultations
+## EHR-grounded evaluation of large language models in end-to-end clinical consultation workflows
+
 
 ### Table of Contents
 - [Project Overview](#project-overview)

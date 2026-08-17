@@ -1,12 +1,10 @@
-import json
 import os
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
-from collections import Counter
 
-# ========= 1. 数据配置与映射 =========
-MODELS = ['gpt55',"gpt5", "gpt4o", 'claude46', "claude4", "medgemma", 'qwen35', "qwen3", "baichuan", "huatuo", 'deepseekv4', "deepseek"]
+# ========= 1. 配置与映射 =========
+MODELS = ['gpt55', "gpt5", "gpt4o", 'claude46', "claude4", "medgemma", 'qwen35', "qwen3", "baichuan", "huatuo", 'deepseekv4', "deepseek"]
 MODEL_DISPLAY_NAMES = {
     'gpt55': "GPT-5.5", "gpt5": "GPT-5", "gpt4o": "GPT-4o", 'claude46': "Claude 4.6", "claude4": "Claude 4.0", "deepseek": "DS-V3", 'deepseekv4': "DS-V4",
     'qwen35': "Qwen3.5", "qwen3": "Qwen3", "medgemma": "MedGem", "baichuan": "BC-M2", "huatuo": "HT-o1"
@@ -20,182 +18,154 @@ DOMAIN_MAP = {
     "Domain 5": "Clarity and transparency of clinical explanations"
 }
 
-JSONL_TEMPLATE = "../../data/eval_52/{model}.jsonl"
-OUT_DIR = "./outputs/error_type_5domains"
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# 中间数据目录（阶段1已产出，直接读取绘图）
+INTERMEDIATE_DIR = os.path.join(BASE_DIR, "data/failure_pattern")
+PANEL_PLOT_DATA_PATTERN = os.path.join(INTERMEDIATE_DIR, "panel_{panel_label}_plot_data.csv")
+OUT_DIR = "./outputs/failre_pattern_4domains"
 os.makedirs(OUT_DIR, exist_ok=True)
 
-NATURE_PALETTE = ["#247BA0", "#70C1B3", "#B2DBBF", "#F3FFBD", "#FF1654", "#9575CD"]
+JAMA_COLORS = {
+    "panel_a": "#87AAB9",
+    "panel_b": "#2F5763",
+    "panel_c": "#C4D4DA",
+    "panel_d": "#5B7C8A"
+}
+SCATTER_COLOR = "#555555"
 
-# ========= 2. 数据处理逻辑 =========
-def read_cases(path):
-    cases = {}
-    if not os.path.exists(path): return {}
-    with open(path, "r", encoding="utf-8") as f:
-        for line in f:
-            if not line.strip(): continue
-            case = json.loads(line)
-            key = (case.get("SubjectID"), case.get("AdmissionID"))
-            if None not in key: cases[key] = case
-    return cases
 
-all_cases = {m: read_cases(JSONL_TEMPLATE.format(model=m)) for m in MODELS}
-intersection_keys = set.intersection(*(set(c.keys()) for c in all_cases.values()))
-N = len(intersection_keys)
+# ================================================================
+# 读取中间数据 CSV -> 画图
+# ================================================================
+def format_error_label(err):
+    formatted_err = err.replace("_", " ").capitalize()
+    if formatted_err == "Uncertain answer handling":
+        return "Unaddressed uncertainty"
+    elif formatted_err == "Unclear expression handling":
+        return "Clarification failure"
+    elif formatted_err == "Logical jumps":
+        return "Logical gap"
+    elif formatted_err == "Repetitive questions":
+        return "Repetitive question"
+    elif formatted_err == "Unclear questions":
+        return "Unclear question"
+    elif formatted_err == "Suggestive questions":
+        return "Suggestive question"
+    elif formatted_err == "Confrontational questions":
+        return "Confrontational question"
+    return formatted_err
 
-rows = []
-raw_domains_found = []
-for model in MODELS:
-    cases = all_cases[model]
-    counters = {}
-    for key in intersection_keys:
-        case = cases[key]
-        for k, v in case.items():
-            if not k.endswith("_score"): continue
-            raw_dom = k.replace("_score", "").replace("_", " ").title().strip()
-            if raw_dom not in raw_domains_found: raw_domains_found.append(raw_dom)
-            if raw_dom not in counters: counters[raw_dom] = Counter()
 
-            if "diagnostic_reasoning" in k.lower():
-                for err, cnt in v.get("reasoning_errors", {}).items():
-                    if cnt > 0: counters[raw_dom][err] += 1
-            elif "information_coverage" in k.lower():
-                for aspect, info in v.get("explanation", {}).items():
-                    if isinstance(info, dict) and info.get("status", "").startswith("missing"):
-                        counters[raw_dom][aspect] += 1
-            elif "self_awareness" in k.lower():
-                for aspect, info in v.get("explanation", {}).items():
-                    if isinstance(info, dict) and info.get("status", "").startswith("missing"):
-                        counters[raw_dom][aspect] += 1
-            else:
-                for err, cnt in v.get("details", {}).items():
-                    if cnt > 0: counters[raw_dom][err] += 1
-    for dom, counter in counters.items():
-        for err, cnt in counter.items():
-            rows.append({"Model": MODEL_DISPLAY_NAMES[model], "RawDomain": dom, "ErrorType": err, "Prob": cnt/N})
+def load_intermediate_data():
+    """读取"倒数第二步"的 panel 绘图数据 CSV。"""
+    panel_labels = ['a', 'b', 'c', 'd']
+    panel_data_list = []
+    for p in panel_labels:
+        csv_path = PANEL_PLOT_DATA_PATTERN.format(panel_label=p)
+        if not os.path.exists(csv_path):
+            print(f"⚠️ 文件不存在，跳过: {csv_path}")
+            continue
+        pdf = pd.read_csv(csv_path)
+        # 按 RowOrder 升序（与图上从左到右一致）
+        pdf = pdf.sort_values("RowOrder").reset_index(drop=True)
+        title = DOMAIN_MAP.get(f"Domain {panel_labels.index(p)+1}", "")
+        panel_data_list.append((p, title, pdf))
+        print(f"📂 读取 panel {p} 倒数第二步绘图数据 -> {csv_path}（{len(pdf)} 行，5 个箱位）")
+    return panel_data_list
 
-df_all = pd.DataFrame(rows)
 
-# ========= 3. 绘图引擎 =========
-def draw_nature_radial_tight(df_dom, display_title, save_path):
-    error_types = (df_dom.groupby("ErrorType")["Prob"].mean()
-                   .sort_values(ascending=False).head(6).index.tolist())
+def draw_jama_style_panels(panel_iter, out_dir):
+    model_display_order = [MODEL_DISPLAY_NAMES[m] for m in MODELS]
+    panel_labels = ['a', 'b', 'c', 'd']
+    dark_panels = {'panel_b', 'panel_d'}
+    generated_files = []
 
-    model_list = ["HT-o1", "BC-M2", "MedGem", "Qwen3", "Qwen3.5", "DS-V3", "DS-V4", "Claude 4.0", "Claude 4.6", "GPT-4o", "GPT-5", "GPT-5.5"]
+    for panel_label, title, pdf in panel_iter:
+        prob_cols = [f"{c}_Prob" for c in model_display_order if f"{c}_Prob" in pdf.columns]
+        box_data = [pdf[prob_cols].iloc[i].dropna().values for i in range(len(pdf))]
+        labels = pdf["ErrorLabel"].tolist()
+        idx = panel_labels.index(panel_label) if panel_label in panel_labels else 0
 
-    n_groups = len(error_types)
-    n_models = len(model_list)
+        fig, ax = plt.subplots(figsize=(8, 6))
 
-    group_gap = 0.2
-    total_bars = n_groups * n_models
-    available_whisker = 2 * np.pi - (n_groups * group_gap)
-    bar_width = available_whisker / total_bars
+        panel_color_key = f"panel_{panel_labels[idx]}"
+        panel_color = JAMA_COLORS.get(panel_color_key, "#87AAB9")
+        is_dark = panel_color_key in dark_panels
+        median_color = "white" if is_dark else "#2F5763"
+        line_color = "#2F5763"
 
-    fig, ax = plt.subplots(figsize=(14, 14), subplot_kw=dict(polar=True))
+        bp = ax.boxplot(
+            box_data,
+            vert=True,
+            patch_artist=True,
+            widths=0.45,
+            showfliers=True,
+            whis=1.5,
+            flierprops=dict(
+                marker='o',
+                markerfacecolor='none',
+                markeredgecolor="#2F5763",
+                markersize=5,
+                alpha=0.7
+            )
+        )
 
-    ax.set_theta_offset(np.pi / 2)
-    ax.set_theta_direction(-1)
-    ax.set_rorigin(-0.4)
+        for patch in bp['boxes']:
+            patch.set_facecolor(panel_color)
+            patch.set_edgecolor(line_color)
+            patch.set_linewidth(0.8)
 
-    for r in [0.2, 0.4, 0.6, 0.8]:
-        ax.add_patch(plt.Circle((0, 0), r, transform=ax.transData._b, fill=False,
-                                edgecolor='#CCCCCC', linestyle='--', linewidth=0.7, zorder=1))
+        for median in bp['medians']:
+            median.set_color(median_color)
+            median.set_linewidth(1.3)
 
-    for r in [0.2, 0.4, 0.6, 0.8, 1.0]:
-        ax.text(0, r, f"{r}", color="#888888", fontsize=11, ha='center', va='center',
-                bbox=dict(facecolor='white', edgecolor='none', pad=1))
+        for whisker in bp['whiskers']:
+            whisker.set_color(line_color)
+            whisker.set_linewidth(0.8)
 
-    current_angle = 0
+        for cap in bp['caps']:
+            cap.set_color(line_color)
+            cap.set_linewidth(0.8)
 
-    for i, err in enumerate(error_types):
-        color = NATURE_PALETTE[i % len(NATURE_PALETTE)]
-        err_df = df_dom[df_dom["ErrorType"] == err].set_index("Model").reindex(model_list).fillna(0)
+        ax.set_xticks(np.arange(1, len(labels) + 1))
+        ax.set_xticklabels(labels, fontsize=10, rotation=45, ha='right')
 
-        group_start_angle = current_angle
+        base_axes_width = 0.7
+        max_labels = 5
+        current_axes_width = base_axes_width * (len(labels) / max_labels)
+        ax.set_position([0.20, 0.22, current_axes_width, 0.70])
 
-        for j, m_name in enumerate(model_list):
-            val = err_df.loc[m_name, 'Prob']
+        ax.set_xlim(0.5, len(labels) + 0.5)
 
-            ax.bar(current_angle + bar_width/2, val, width=bar_width*0.9, color=color,
-                   alpha=0.8, edgecolor='none', zorder=3)
+        ax.set_ylim(0, 1)
+        ax.set_yticks([0, 0.25, 0.50, 0.75, 1.00])
+        ax.set_ylabel("Failure probability", fontsize=11)
 
-            angle_deg = np.rad2deg(current_angle + bar_width/2)
-            rot = -angle_deg + 90
+        ax.grid(axis="y", color="#ECECEC", linewidth=0.6)
 
-            if 90 < angle_deg < 270:
-                rot += 180
-                va = 'top'
-            else:
-                va = 'bottom'
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.spines["left"].set_linewidth(0.6)
+        ax.spines["bottom"].set_linewidth(0.6)
 
-            ax.text(current_angle + bar_width/2, 1.05, m_name,
-                    rotation=rot, rotation_mode='anchor',
-                    ha='center', va=va, fontsize=13, fontweight='bold')
+        for ext, fmt, kw in [
+            ("svg", "svg", {}),
+            ("png", "png", {"dpi": 300}),
+            ("eps", "eps", {}),
+        ]:
+            panel_save_path = os.path.join(out_dir, f"panel_{panel_labels[idx]}.{ext}")
+            plt.savefig(panel_save_path, format=fmt, bbox_inches='tight', **kw)
+            generated_files.append(panel_save_path)
+            print(f"✅ 保存子图 -> {panel_save_path}")
+        plt.close()
 
-            current_angle += bar_width
+    return generated_files
 
-        group_end_angle = current_angle - bar_width
 
-        r_bracket = 1.35
-        bracket_angles = np.linspace(group_start_angle, group_end_angle, 100)
-        ax.plot(bracket_angles, [r_bracket]*100, color='black', linewidth=2)
-        ax.plot([group_start_angle, group_start_angle], [r_bracket, r_bracket-0.05], color='black', linewidth=2)
-        ax.plot([group_end_angle, group_end_angle], [r_bracket, r_bracket-0.05], color='black', linewidth=2)
-
-        mid_angle = (group_start_angle + group_end_angle) / 2
-        mid_deg = np.rad2deg(mid_angle)
-        t_rot = -mid_deg
-        if 90 < mid_deg < 270: t_rot += 180
-
-        formatted_err = err.replace("_", " ").capitalize()
-        
-        ax.text(mid_angle, r_bracket + 0.08, formatted_err,
-                rotation=t_rot, rotation_mode='anchor',
-                ha='center', va='center', fontsize=18, fontweight='bold')
-
-        current_angle += group_gap
-
-    ax.set_xticks([]); ax.set_yticklabels([])
-    ax.spines['polar'].set_visible(False)
-    ax.grid(False)
-
-    plt.title(display_title, pad=60, fontsize=24, fontweight='bold')
-    plt.savefig(save_path, format="svg", bbox_inches='tight', dpi=300)
-    plt.close()
-
-# ========= 4. 运行 =========
-for i in range(1, 6):
-    raw_key = f"Domain {i}"
-    new_title = DOMAIN_MAP.get(raw_key)
-    if i-1 < len(raw_domains_found):
-        actual_raw_dom = raw_domains_found[i-1]
-        df_sub = df_all[df_all["RawDomain"] == actual_raw_dom]
-        if not df_sub.empty:
-            save_path = os.path.join(OUT_DIR, f"radial_{raw_key.replace(' ', '')}.svg")
-            draw_nature_radial_tight(df_sub, new_title, save_path)
-            print(f"Generated: {new_title}")
-
-# ========= 5. 输出详细表格 =========
-print("\n" + "="*80)
-print("📊 各模型在各Domain下的Error Type错误概率详细表格")
-print("="*80)
-
-for i in range(1, 6):
-    raw_key = f"Domain {i}"
-    new_title = DOMAIN_MAP.get(raw_key)
-
-    if i-1 < len(raw_domains_found):
-        actual_raw_dom = raw_domains_found[i-1]
-        df_sub = df_all[df_all["RawDomain"] == actual_raw_dom]
-
-        if not df_sub.empty:
-            print(f"\n【{new_title}】")
-            pivot_df = df_sub.pivot_table(index="Model", columns="ErrorType", values="Prob", aggfunc="mean")
-            pivot_df = pivot_df.round(4)
-            print(pivot_df.to_string())
-
-pivot_all = df_all.pivot_table(index="Model", columns=["RawDomain", "ErrorType"], values="Prob", aggfunc="mean")
-pivot_all = pivot_all.round(4)
-
-csv_path = os.path.join(OUT_DIR, "all_models_error_probs.csv")
-pivot_all.to_csv(csv_path)
-print(f"\n✅ 完整表格已保存至: {csv_path}")
+# ========= 运行：从中间数据画图 =========
+if __name__ == "__main__":
+    panel_iter = load_intermediate_data()
+    generated_files = draw_jama_style_panels(panel_iter, OUT_DIR)
+    print("\nGenerated files:")
+    for f in generated_files:
+        print(f"  - {f}")
